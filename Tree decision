@@ -1,0 +1,24 @@
+# Decision Tree Classification
+from sklearn.tree import DecisionTreeRegressor  # Or DecisionTreeClassifier
+from sklearn.tree import DecisionTreeClassifier
+
+# Create model (using random_state for reproducibility)
+dt_model = DecisionTreeClassifier(random_state=42, max_depth=10)
+
+# Train model
+dt_model.fit(X_train, y_train)
+
+# Predictions
+y_pred_dt = dt_model.predict(X_test)
+
+# Evaluation
+dt_accuracy = accuracy_score(y_test, y_pred_dt)
+
+print("Decision Tree Accuracy:")
+print(dt_accuracy)
+
+print("\nClassification Report:")
+print(classification_report(y_test, y_pred_dt))
+
+print("\nConfusion Matrix:")
+print(confusion_matrix(y_test, y_pred_dt))
