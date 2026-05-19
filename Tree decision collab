@@ -1,0 +1,337 @@
+{
+  "nbformat": 4,
+  "nbformat_minor": 0,
+  "metadata": {
+    "colab": {
+      "provenance": []
+    },
+    "kernelspec": {
+      "name": "python3",
+      "display_name": "Python 3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "intro-markdown"
+      },
+      "source": [
+        "# Stress Classification - Decision Tree Extension\n",
+        "This notebook contains the complete pipeline from your original project, updated to include the **Decision Tree Classifier** alongside Logistic Regression and SVM for comparative analysis."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "libraries-cell"
+      },
+      "outputs": [],
+      "source": [
+        "# Libraries\n",
+        "import pandas as pd\n",
+        "import numpy as np\n",
+        "import re\n",
+        "\n",
+        "# Visualization\n",
+        "import matplotlib.pyplot as plt\n",
+        "import seaborn as sns\n",
+        "\n",
+        "# NLP\n",
+        "import nltk\n",
+        "from nltk.corpus import stopwords\n",
+        "from nltk.stem import WordNetLemmatizer\n",
+        "\n",
+        "# Machine Learning\n",
+        "from sklearn.model_selection import train_test_split\n",
+        "from sklearn.preprocessing import LabelEncoder, StandardScaler\n",
+        "from sklearn.feature_extraction.text import TfidfVectorizer\n",
+        "from scipy.sparse import hstack\n",
+        "\n",
+        "# Models\n",
+        "from sklearn.linear_model import LogisticRegression\n",
+        "from sklearn.svm import LinearSVC\n",
+        "from sklearn.tree import DecisionTreeClassifier\n",
+        "\n",
+        "# Evaluation\n",
+        "from sklearn.metrics import (\n",
+        "    accuracy_score,\n",
+        "    classification_report,\n",
+        "    confusion_matrix\n",
+        ")"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "nltk-download"
+      },
+      "outputs": [],
+      "source": [
+        "nltk.download('stopwords')\n",
+        "nltk.download('wordnet')"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "data-loading-md"
+      },
+      "source": [
+        "## Data Loading & Initial Inspection"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "load-data"
+      },
+      "outputs": [],
+      "source": [
+        "# Load dataset (Make sure 'stress_dataset.csv' is uploaded to your Colab session)\n",
+        "df = pd.read_csv(\"stress_dataset.csv\")\n",
+        "print(\"Dataset Shape:\", df.shape)\n",
+        "df.head()"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "preprocessing-md"
+      },
+      "source": [
+        "## Preprocessing & Missing Value Imputation"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "impute-missing"
+      },
+      "outputs": [],
+      "source": [
+        "# Handling missing numerical values using median\n",
+        "df['experience_total_hours'].fillna(df['experience_total_hours'].median(), inplace=True)\n",
+        "df['experience_recent_hours'].fillna(df['experience_recent_hours'].median(), inplace=True)\n",
+        "df['crew_size'].fillna(df['crew_size'].median(), inplace=True)\n",
+        "\n",
+        "print(df.isnull().sum())"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "nlp-clean-md"
+      },
+      "source": [
+        "## Text Cleaning & Processing"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "text-cleaning"
+      },
+      "outputs": [],
+      "source": [
+        "stop_words = set(stopwords.words('english'))\n",
+        "lemmatizer = WordNetLemmatizer()\n",
+        "\n",
+        "def clean_text(text):\n",
+        "    text = str(text).lower()\n",
+        "    text = re.sub(r'[^a-zA-Z\\s]', '', text)\n",
+        "    words = [lemmatizer.lemmatize(word) for word in text.split() if word not in stop_words]\n",
+        "    return \" \".join(words)\n",
+        "\n",
+        "# Apply text cleaning\n",
+        "df['cleaned_text'] = df['text'].apply(clean_text)\n",
+        "df['cleaned_human_factors'] = df['human_factors'].apply(clean_text)\n",
+        "df['combined_text'] = df['cleaned_text'] + \" \" + df['cleaned_human_factors']\n",
+        "\n",
+        "df[['text', 'combined_text']].head()"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "encoding-scaling-md"
+      },
+      "source": [
+        "## Feature Engineering (Encoding & Scaling)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "feature-engineering"
+      },
+      "outputs": [],
+      "source": [
+        "# Encode target variable\n",
+        "label_encoder = LabelEncoder()\n",
+        "df['stress_level_encoded'] = label_encoder.fit_transform(df['stress_level'])\n",
+        "\n",
+        "# One-Hot Encoding for categorical flight features\n",
+        "categorical_columns = ['flight_phase', 'time_of_day', 'flight_conditions']\n",
+        "df = pd.get_dummies(df, columns=categorical_columns)\n",
+        "\n",
+        "# Feature Scaling for numerical values\n",
+        "scaler = StandardScaler()\n",
+        "numerical_columns = ['crew_size', 'experience_total_hours', 'experience_recent_hours']\n",
+        "df[numerical_columns] = scaler.fit_transform(df[numerical_columns])\n",
+        "\n",
+        "# Clean up temporary columns\n",
+        "df.drop(columns=['text', 'cleaned_text', 'human_factors', 'cleaned_human_factors', 'stress_level'], inplace=True, errors='ignore')\n",
+        "print(\"Columns after pre-processing:\", df.columns)"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "vectorization-md"
+      },
+      "source": [
+        "## TF-IDF & Matrix Combination"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "vectorization"
+      },
+      "outputs": [],
+      "source": [
+        "# Vectorize the text data\n",
+        "tfidf = TfidfVectorizer(max_features=5000)\n",
+        "X_text = tfidf.fit_transform(df['combined_text'])\n",
+        "\n",
+        "# Separate features and target\n",
+        "X_other = df.drop(columns=['combined_text', 'stress_level_encoded']).astype(float)\n",
+        "X = hstack([X_text, X_other])\n",
+        "y = df['stress_level_encoded']\n",
+        "\n",
+        "print(\"Final feature matrix shape:\", X.shape)"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "split-md"
+      },
+      "source": [
+        "## Train-Test Split"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "datasplit"
+      },
+      "outputs": [],
+      "source": [
+        "X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)\n",
+        "print(\"Training records:\", X_train.shape[0])\n",
+        "print(\"Testing records:\", X_test.shape[0])"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "modeling-md"
+      },
+      "source": [
+        "## Model Training and Evaluation"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "lr-md"
+      },
+      "source": [
+        "### 1. Logistic Regression"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "run-lr"
+      },
+      "outputs": [],
+      "source": [
+        "lr_model = LogisticRegression(max_iter=1000)\n",
+        "lr_model.fit(X_train, y_train)\n",
+        "y_pred_lr = lr_model.predict(X_test)\n",
+        "\n",
+        "print(\"Logistic Regression Accuracy:\", accuracy_score(y_test, y_pred_lr))\n",
+        "print(\"\\nClassification Report:\\n\", classification_report(y_test, y_pred_lr))\n",
+        "print(\"\\nConfusion Matrix:\\n\", confusion_matrix(y_test, y_pred_lr))"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "svm-md"
+      },
+      "source": [
+        "### 2. Support Vector Machine (LinearSVC)"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "run-svm"
+      },
+      "outputs": [],
+      "source": [
+        "svm_model = LinearSVC()\n",
+        "svm_model.fit(X_train, y_train)\n",
+        "y_pred_svm = svm_model.predict(X_test)\n",
+        "\n",
+        "print(\"SVM Accuracy:\", accuracy_score(y_test, y_pred_svm))\n",
+        "print(\"\\nClassification Report:\\n\", classification_report(y_test, y_pred_svm))\n",
+        "print(\"\\nConfusion Matrix:\\n\", confusion_matrix(y_test, y_pred_svm))"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "dt-md"
+      },
+      "source": [
+        "### 3. Decision Tree Classifier"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "run-dt"
+      },
+      "outputs": [],
+      "source": [
+        "# Added requested Decision Tree Classifier\n",
+        "dt_model = DecisionTreeClassifier(random_state=42, max_depth=10)\n",
+        "dt_model.fit(X_train, y_train)\n",
+        "y_pred_dt = dt_model.predict(X_test)\n",
+        "\n",
+        "print(\"Decision Tree Accuracy:\", accuracy_score(y_test, y_pred_dt))\n",
+        "print(\"\\nClassification Report:\\n\", classification_report(y_test, y_pred_dt))\n",
+        "print(\"\\nConfusion Matrix:\\n\", confusion_matrix(y_test, y_pred_dt))"
+      ]
+    }
+  ]
+}
